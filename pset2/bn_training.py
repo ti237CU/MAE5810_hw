@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import pgmpy
+import networkx as nx
 
 from scipy.io import loadmat
 from sklearn.model_selection import train_test_split
@@ -36,7 +37,7 @@ print(train_df.shape)
 print(test_df.shape)    
 
 # Discretize PL
-K_PL = 5
+K_PL = 40
 
 # Determine boundries from training data
 quantiles = np.linspace(0, 1, K_PL + 1)
@@ -206,6 +207,8 @@ result = metrics(posterior, actual_state)
 print("\nSingle-sample metrics:")
 print(result)
 
+example_posterior = posterior
+example_actual_state = actual_state
 ## Evaluate all test observations
 results = []
 for _, row in test_disc.iterrows():
@@ -265,3 +268,192 @@ plt.ylabel("Actual PL State")
 plt.title("PL State Confusion Matrix")
 plt.show()
 
+
+G = nx.DiGraph()
+G.add_nodes_from(model.nodes())
+G.add_edges_from(model.edges())
+
+pos = {
+    "SF_disc": (0, 3),
+    "F_disc":  (0, 2),
+    "BD_disc": (0, 1),
+    "V_disc":  (2, 1),
+    "Z_disc":  (0, 0),
+    "R_disc":  (0, -1),
+    "PL_disc": (3, 0)
+}
+
+node_labels = {
+    "SF_disc": "SF",
+    "F_disc": "F",
+    "BD_disc": "BD",
+    "V_disc": "V",
+    "Z_disc": "Z",
+    "R_disc": "R",
+    "PL_disc": "PL"
+}
+
+plt.figure(figsize=(9, 6))
+nx.draw_networkx(
+    G,
+    pos=pos,
+    labels=node_labels,
+    with_labels=True,
+    node_size=2200,
+    font_size=11,
+    arrows=True,
+    arrowsize=20
+)
+plt.title("Learned Bayesian Network Structure")
+plt.axis("off")
+plt.tight_layout()
+plt.show()
+
+
+finite_edges = pl_edges[np.isfinite(pl_edges)]
+
+plt.figure(figsize=(9, 5))
+plt.hist(
+    train_df["PL"],
+    bins=50
+)
+
+for edge in finite_edges:
+    plt.axvline(
+        edge,
+        linestyle="--",
+        linewidth=1
+    )
+
+plt.xlabel("Propagation Loss, PL")
+plt.ylabel("Training Sample Count")
+plt.title(f"PL Distribution and Quantile Boundaries, K_PL = {K_PL}")
+plt.tight_layout()
+plt.show()
+
+
+pl_counts = train_disc["PL_disc"].value_counts().sort_index()
+
+plt.figure(figsize=(8, 5))
+plt.bar(
+    pl_counts.index,
+    pl_counts.values
+)
+plt.xticks(np.arange(1, K_PL + 1))
+plt.xlabel("PL Discrete State")
+plt.ylabel("Training Sample Count")
+plt.title(f"PL State Counts After Quantile Discretization, K_PL = {K_PL}")
+plt.tight_layout()
+plt.show()
+
+
+cm_norm = confusion_matrix(
+    results_df["Actual"],
+    results_df["Predicted"],
+    normalize="true"
+)
+
+labels = np.arange(1, cm_norm.shape[0] + 1)
+
+plt.figure(figsize=(10, 9))
+plt.imshow(
+    cm_norm,
+    vmin=0,
+    vmax=1
+)
+plt.colorbar()
+plt.xticks(np.arange(len(labels)), labels, rotation=90)
+plt.yticks(np.arange(len(labels)), labels)
+plt.xlabel("Predicted PL State")
+plt.ylabel("Actual PL State")
+plt.title("Normalized PL State Confusion Matrix")
+plt.tight_layout()
+plt.show()
+
+
+posterior_probabilities = example_posterior.values
+
+posterior_states = np.asarray(
+    example_posterior.state_names["PL_disc"],
+    dtype=int
+)
+
+predicted_state = posterior_states[
+    np.argmax(posterior_probabilities)
+]
+
+plt.figure(figsize=(8, 5))
+plt.bar(
+    posterior_states,
+    posterior_probabilities
+)
+plt.axvline(
+    example_actual_state,
+    linestyle="--",
+    linewidth=2,
+    label=f"Actual = {example_actual_state}"
+)
+plt.axvline(
+    predicted_state,
+    linestyle=":",
+    linewidth=2,
+    label=f"MAP = {predicted_state}"
+)
+plt.xticks(posterior_states)
+plt.xlabel("PL State")
+plt.ylabel("Posterior Probability")
+plt.title("Posterior Distribution for Example Test Observation")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+dm_counts = results_df["DM"].value_counts().sort_index()
+
+plt.figure(figsize=(8, 5))
+plt.bar(
+    dm_counts.index,
+    dm_counts.values
+)
+plt.xticks(dm_counts.index)
+plt.xlabel("Distance Metric")
+plt.ylabel("Number of Test Samples")
+plt.title("Distribution of PL Prediction Distance")
+plt.tight_layout()
+plt.show()
+
+
+plt.figure(figsize=(7, 7))
+plt.scatter(
+    results_df["Actual"],
+    results_df["Predicted"],
+    alpha=0.15,
+    s=10
+)
+
+min_state = int(
+    min(
+        results_df["Actual"].min(),
+        results_df["Predicted"].min()
+    )
+)
+
+max_state = int(
+    max(
+        results_df["Actual"].max(),
+        results_df["Predicted"].max()
+    )
+)
+
+plt.plot(
+    [min_state, max_state],
+    [min_state, max_state],
+    linestyle="--"
+)
+plt.xticks(np.arange(min_state, max_state + 1))
+plt.yticks(np.arange(min_state, max_state + 1))
+plt.xlabel("Actual PL State")
+plt.ylabel("Predicted PL State")
+plt.title("Actual vs Predicted PL State")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
